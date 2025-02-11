@@ -1,0 +1,56 @@
+---
+- name: Configure Jenkins Master and Slave with EBS
+  hosts: all
+  become: yes
+  vars:
+    jenkins_home: "/var/lib/jenkins"
+
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-11-jdk
+        state: present
+
+    - name: Install Jenkins
+      apt:
+        name: jenkins
+        state: present
+
+    - name: Start Jenkins service
+      service:
+        name: jenkins
+        state: started
+        enabled: yes
+
+    - name: Ensure Jenkins is accessible
+      uri:
+        url: "http://{{ ansible_host }}:8080"
+        status_code: 200
+        timeout: 30
+
+    - name: Format the EBS volume
+      filesystem:
+        fstype: ext4
+        dev: "/dev/xvdf"
+
+    - name: Mount the EBS volume
+      mount:
+        name: "{{ jenkins_home }}"
+        src: "/dev/xvdf"
+        fstype: ext4
+        opts: rw
+        state: mounted
+
+    - name: Add Jenkins Slave Node on Master
+      when: inventory_hostname == 'jenkins-master'
+      uri:
+        url: "http://{{ ansible_host }}:8080/computer/slave-node/doCreateItem"
+        method: POST
+        body: '{"name":"slave-node","type":"hudson.slaves.DumbSlave$DescriptorImpl","description":"Slave Node","remoteFS":"/home/jenkins","numExecutors":1,"mode":"NORMAL","launcher":{"stapler-class":"hudson.plugins.sshslaves.SSHLauncher","host":"{{ ansible_host }}","port":22,"credentialsId":"jenkins-ssh-key"}}'
+        body_format: json
+        status_code: 200
+
+    - name: Ensure Jenkins is running
+      service:
+        name: jenkins
+        state: restarted
